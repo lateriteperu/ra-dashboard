@@ -1,0 +1,11 @@
+We need to updathe the raw file in GitHub
+
+
+Credentials:
+Username lateriteperu
+Password i0qJZrih5vG6yR
+
+To run locally from powershell change the directory ie cd "G:\Shared drives\PE-RA_LSM-0725\Data\Test" and then run the phytonfile python -m streamlit run dashboard.py
+
+Public Link
+https://ra-dashboard-lateriteperu.streamlit.app/
