@@ -98,7 +98,7 @@ with header_col2:
         st.markdown(
             f"""
             <div style='text-align: right; font-size: 20px;'>
-                Powered by <strong>Laterite</strong><br>
+                Created by <strong>Laterite</strong><br>
                 Last Updated: {last_update_date}
             </div>
             """,
