@@ -273,16 +273,16 @@ with tab3:
             
             # --- NEW: Define improved styling and highlight functions ---
             style_function = lambda x: {
-                'fillColor': '#FFFF00', # Bright Yellow
+                'fillColor': '#DA302C', # Laterite Dark Red
                 'color': '#FFFFFF',     # White
                 'weight': 3,
-                'fillOpacity': 0.4
+                'fillOpacity': 1.0      # Not transparent
             }
             highlight_function = lambda x: {
-                'fillColor': '#FFFF00',
+                'fillColor': '#DA302C', # Laterite Dark Red
                 'color': '#FFFFFF',
                 'weight': 5,            # Thicker border on hover
-                'fillOpacity': 0.7      # More opaque on hover
+                'fillOpacity': 1.0      # Still not transparent
             }
 
             folium.GeoJson(
