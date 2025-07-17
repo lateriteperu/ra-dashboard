@@ -244,15 +244,21 @@ with tab3:
         st.error(f"A technical error occurred while loading the shapefile: {st.session_state.map_error}")
     # If no error, check if the data is loaded
     elif gdf_farms is not None:
+        # Ensure the GeoDataFrame is in the correct CRS for Folium (WGS 84)
+        try:
+            gdf_farms_4326 = gdf_farms.to_crs(epsg=4326)
+        except Exception as e:
+            st.error(f"Error re-projecting shapefile to the correct CRS: {e}")
+            st.stop()
+
         m = folium.Map(tiles=None, control_scale=True)
         folium.TileLayer(
             tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
             attr='Esri', name='Esri Satellite', overlay=False, control=True
         ).add_to(m)
         geojson = folium.GeoJson(
-            gdf_farms,
+            gdf_farms_4326,
             tooltip=folium.features.GeoJsonTooltip(
-                # CHANGE: Use the corrected attribute name
                 fields=['What_is_th'],
                 aliases=['Farm ID:'],
                 sticky=True
