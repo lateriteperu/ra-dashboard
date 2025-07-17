@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import geopandas as gpd
+import folium
+from streamlit_folium import st_folium
 
 # --- PAGE SETUP & CONSTANTS ---
 st.set_page_config(
@@ -22,7 +25,7 @@ PROJECT_VILLAGES = [
 ALL_VILLAGES = sorted(CERTIFIED_VILLAGES + PROJECT_VILLAGES)
 
 
-# --- DATA LOADING USING SESSION STATE (Automatic Refresh) ---
+# --- DATA LOADING FUNCTIONS ---
 def load_survey_data():
     """Loads the main farmer survey data."""
     try:
@@ -51,11 +54,45 @@ def load_survey_data():
         st.error("Error: 'Raw_data.csv' not found. Please add it to your project folder.")
         return None
 
-# Load data into session state to avoid reloading on every interaction
+def load_gps_data():
+    """Loads the land use GPS data."""
+    try:
+        df_gps = pd.read_csv('gps_raw.csv')
+        if 'type' not in df_gps.columns:
+            st.error("Error: The 'gps_raw.csv' file must contain a column named 'type'.")
+            return None
+        df_gps['Land Use Type'] = df_gps['type'].str.replace('_', ' ').str.title()
+        return df_gps
+    except FileNotFoundError:
+        return None # Return None to show a warning in the tab instead of an error
+
+def load_map_data():
+    """Loads the farm polygon shapefile data from a zip archive."""
+    try:
+        # GeoPandas can read a shapefile directly from a zip archive
+        gdf = gpd.read_file("zip://Polygons_Shapefile.zip")
+        # Ensure the Farm ID column exists
+        if 'What_is_the_Unique_Farm_ID' not in gdf.columns:
+            st.error("Shapefile error: Must contain a column named 'What_is_the_Unique_Farm_ID'.")
+            return None
+        return gdf
+    except Exception as e:
+        # Catch broader exceptions because GeoPandas can have various read errors
+        print(f"Error loading shapefile: {e}")
+        return None
+
+
+# --- LOAD ALL DATA INTO SESSION STATE ---
 if 'survey_data' not in st.session_state:
     st.session_state.survey_data = load_survey_data()
+if 'gps_data' not in st.session_state:
+    st.session_state.gps_data = load_gps_data()
+if 'map_data' not in st.session_state:
+    st.session_state.map_data = load_map_data()
 
 df_raw = st.session_state.survey_data
+df_gps = st.session_state.gps_data
+gdf_farms = st.session_state.map_data
 
 if df_raw is None:
     st.stop()
@@ -82,7 +119,7 @@ st.markdown("---")
 
 
 # --- TAB STRUCTURE ---
-tab1, tab2 = st.tabs(["Farmer Surveys", "Land Use Analysis"])
+tab1, tab2, tab3 = st.tabs(["Farmer Surveys", "Land Use Analysis", "Farm Polygons Map"])
 
 # --- TAB 1: FARMER SURVEYS ---
 with tab1:
@@ -103,7 +140,6 @@ with tab1:
         max_value=max_date
     )
 
-    # --- FILTERING DATA ---
     start_date = pd.to_datetime(selected_dates[0])
     end_date = pd.to_datetime(selected_dates[1])
     overall_progress_df = df_raw[(df_raw['Date'] >= start_date) & (df_raw['Date'] <= end_date)]
@@ -116,12 +152,10 @@ with tab1:
     if selected_village != 'All':
         df_filtered = df_filtered[df_filtered['Village'] == selected_village]
 
-    # --- KPI CALCULATION ---
     total_achieved_in_date_range = len(overall_progress_df)
     total_achieved_in_selection = len(df_filtered)
     percentage_achieved = (total_achieved_in_date_range / OVERALL_TARGET) if OVERALL_TARGET > 0 else 0
 
-    # --- DISPLAY METRICS ---
     st.header("Overall Summary")
     col1, col2, col3 = st.columns(3)
     col1.metric("Overall Target", f"{OVERALL_TARGET:,}")
@@ -131,7 +165,6 @@ with tab1:
     st.subheader("Details for Current Selection")
     st.metric("Surveys in Selection", f"{total_achieved_in_selection:,}")
 
-    # --- PROGRESS TABLE BY VILLAGE ---
     st.header("Progress by Village")
     progress_by_village = df_filtered.groupby('Village').size().reset_index(name='Achieved')
     village_type_map = {village: 'Certified' for village in CERTIFIED_VILLAGES}
@@ -145,7 +178,6 @@ with tab1:
     village_summary['Achieved'] = village_summary['Achieved'].fillna(0).astype(int)
     st.dataframe(village_summary.style.format({'Achieved': '{:,}'}), use_container_width=True)
 
-    # --- CHARTS ---
     st.header("Trend Analysis")
     col_graph1, col_graph2 = st.columns(2)
     with col_graph1:
@@ -169,41 +201,63 @@ with tab1:
         fig_line.update_layout(title_x=0.5)
         st.plotly_chart(fig_line, use_container_width=True)
 
-    # --- RAW DATA VIEW ---
     with st.expander("View filtered raw data"):
         st.dataframe(df_filtered)
 
 # --- TAB 2: LAND USE ANALYSIS ---
 with tab2:
     st.header("Land Use Point Frequency")
-    
-    try:
-        # Load the GPS data
-        df_gps = pd.read_csv('gps_raw.csv')
+    if df_gps is not None:
+        frequency = df_gps['Land Use Type'].value_counts().reset_index()
+        frequency.columns = ['Land Use Type', 'Number of Points']
+        fig_land_use = px.bar(
+            frequency, x='Land Use Type', y='Number of Points',
+            title='Frequency of Land Use Types',
+            labels={'Land Use Type': 'Type of Land Use', 'Number of Points': 'Count of GPS Points'},
+            color_discrete_sequence=['rgb(218, 48, 44)']
+        )
+        fig_land_use.update_layout(title_x=0.5)
+        st.plotly_chart(fig_land_use, use_container_width=True)
+    else:
+        st.warning("Warning: 'gps_raw.csv' file not found. Please add it to your project folder to see this analysis.")
 
-        # Check if the 'type' column exists
-        if 'type' in df_gps.columns:
-            # Clean up the names: replace underscores and capitalize
-            df_gps['Land Use Type'] = df_gps['type'].str.replace('_', ' ').str.title()
-            
-            # Calculate the frequency of each type
-            frequency = df_gps['Land Use Type'].value_counts().reset_index()
-            frequency.columns = ['Land Use Type', 'Number of Points']
+# --- TAB 3: FARM POLYGONS MAP ---
+with tab3:
+    st.header("Map of Farm Polygons")
+    if gdf_farms is not None:
+        # Create a base map centered on the data
+        # Using a satellite tile layer
+        m = folium.Map(tiles=None, control_scale=True)
+        folium.TileLayer(
+            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attr='Esri',
+            name='Esri Satellite',
+            overlay=False,
+            control=True
+        ).add_to(m)
 
-            # Create the bar chart
-            fig_land_use = px.bar(
-                frequency,
-                x='Land Use Type',
-                y='Number of Points',
-                title='Frequency of Land Use Types',
-                labels={'Land Use Type': 'Type of Land Use', 'Number of Points': 'Count of GPS Points'},
-                color_discrete_sequence=['rgb(218, 48, 44)'] # Using Laterite red
-            )
-            fig_land_use.update_layout(title_x=0.5)
-            st.plotly_chart(fig_land_use, use_container_width=True)
+        # Add polygons to the map
+        # The GeoJson object can handle the GeoDataFrame directly
+        # We use a tooltip to show the Farm ID on hover
+        geojson = folium.GeoJson(
+            gdf_farms,
+            tooltip=folium.features.GeoJsonTooltip(
+                fields=['What_is_the_Unique_Farm_ID'],
+                aliases=['Farm ID:'],
+                sticky=True
+            ),
+            style_function=lambda feature: {
+                'fillColor': '#12b58b',
+                'color': 'black',
+                'weight': 2,
+                'fillOpacity': 0.5
+            }
+        ).add_to(m)
 
-        else:
-            st.error("Error: The 'gps_raw.csv' file must contain a column named 'type'.")
+        # Fit the map to the bounds of the polygons
+        m.fit_bounds(geojson.get_bounds())
 
-    except FileNotFoundError:
-        st.warning("Warning: 'gps_raw.csv' file not found. Please add it to your project folder to see the Land Use Analysis.")
+        # Display the map in Streamlit
+        st_folium(m, use_container_width=True)
+    else:
+        st.warning("Warning: 'Polygons_Shapefile.zip' not found. Please add it to your project folder to see the map.")
