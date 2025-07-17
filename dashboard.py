@@ -68,8 +68,9 @@ def load_map_data():
     """Loads the farm polygon shapefile data from a zip archive."""
     # This function will now raise an exception on failure, which will be caught below.
     gdf = gpd.read_file("zip://Polygons_Shapefile.zip")
-    if 'What_is_the_Unique_Farm_ID' not in gdf.columns:
-        raise KeyError("Shapefile error: Must contain a column named 'What_is_the_Unique_Farm_ID'.")
+    # CHANGE: Use the corrected attribute name
+    if 'What_is_th' not in gdf.columns:
+        raise KeyError("Shapefile error: Must contain a column named 'What_is_th'.")
     return gdf
 
 
@@ -251,7 +252,8 @@ with tab3:
         geojson = folium.GeoJson(
             gdf_farms,
             tooltip=folium.features.GeoJsonTooltip(
-                fields=['What_is_the_Unique_Farm_ID'],
+                # CHANGE: Use the corrected attribute name
+                fields=['What_is_th'],
                 aliases=['Farm ID:'],
                 sticky=True
             ),
