@@ -68,7 +68,6 @@ def load_map_data():
     """Loads the farm polygon shapefile data from a zip archive."""
     # This function will now raise an exception on failure, which will be caught below.
     gdf = gpd.read_file("zip://Polygons_Shapefile.zip")
-    # CHANGE: Use the corrected attribute name
     if 'What_is_th' not in gdf.columns:
         raise KeyError("Shapefile error: Must contain a column named 'What_is_th'.")
     return gdf
@@ -239,36 +238,68 @@ with tab2:
 # --- TAB 3: FARM POLYGONS MAP ---
 with tab3:
     st.header("Map of Farm Polygons")
-    # Check for a stored error first
     if 'map_error' in st.session_state and st.session_state.map_error is not None:
         st.error(f"A technical error occurred while loading the shapefile: {st.session_state.map_error}")
-    # If no error, check if the data is loaded
-    elif gdf_farms is not None:
-        # Ensure the GeoDataFrame is in the correct CRS for Folium (WGS 84)
+    elif gdf_farms is not None and not gdf_farms.empty:
         try:
-            gdf_farms_4326 = gdf_farms.to_crs(epsg=4326)
-        except Exception as e:
-            st.error(f"Error re-projecting shapefile to the correct CRS: {e}")
-            st.stop()
+            # --- NEW: Add a search box for farms ---
+            farm_id_list = ['All Farms'] + sorted(gdf_farms['What_is_th'].unique().tolist())
+            selected_farm_id = st.selectbox("Search for a Farm ID to zoom in:", farm_id_list)
 
-        m = folium.Map(tiles=None, control_scale=True)
-        folium.TileLayer(
-            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            attr='Esri', name='Esri Satellite', overlay=False, control=True
-        ).add_to(m)
-        geojson = folium.GeoJson(
-            gdf_farms_4326,
-            tooltip=folium.features.GeoJsonTooltip(
-                fields=['What_is_th'],
-                aliases=['Farm ID:'],
-                sticky=True
-            ),
-            style_function=lambda feature: {
-                'fillColor': '#12b58b', 'color': 'black', 'weight': 2, 'fillOpacity': 0.5
+            # Filter the data based on the selection
+            if selected_farm_id == 'All Farms':
+                gdf_to_display = gdf_farms
+            else:
+                gdf_to_display = gdf_farms[gdf_farms['What_is_th'] == selected_farm_id]
+
+            # Ensure the GeoDataFrame is in the correct CRS for Folium (WGS 84)
+            gdf_4326 = gdf_to_display.to_crs(epsg=4326)
+
+            # Calculate the center for the map view
+            bounds = gdf_4326.total_bounds
+            center_lat = (bounds[1] + bounds[3]) / 2
+            center_lon = (bounds[0] + bounds[2]) / 2
+
+            # Determine the appropriate zoom level
+            zoom_level = 12 if selected_farm_id == 'All Farms' else 16
+
+            # Create a base map centered on the data
+            m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_level, tiles=None, control_scale=True)
+            
+            folium.TileLayer(
+                tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                attr='Esri', name='Esri Satellite', overlay=False, control=True
+            ).add_to(m)
+            
+            # --- NEW: Define improved styling and highlight functions ---
+            style_function = lambda x: {
+                'fillColor': '#FFFF00', # Bright Yellow
+                'color': '#FFFFFF',     # White
+                'weight': 3,
+                'fillOpacity': 0.4
             }
-        ).add_to(m)
-        m.fit_bounds(geojson.get_bounds())
-        st_folium(m, use_container_width=True)
-    # If no error and no data, show the original warning
+            highlight_function = lambda x: {
+                'fillColor': '#FFFF00',
+                'color': '#FFFFFF',
+                'weight': 5,            # Thicker border on hover
+                'fillOpacity': 0.7      # More opaque on hover
+            }
+
+            folium.GeoJson(
+                gdf_4326,
+                tooltip=folium.features.GeoJsonTooltip(
+                    fields=['What_is_th'],
+                    aliases=['Farm ID:'],
+                    sticky=True
+                ),
+                style_function=style_function,
+                highlight_function=highlight_function
+            ).add_to(m)
+            
+            st_folium(m, use_container_width=True, height=600)
+
+        except Exception as e:
+            st.error(f"An error occurred during map creation: {e}")
+
     else:
         st.warning("Could not load map data. Please check the 'Polygons_Shapefile.zip' file.")
