@@ -41,62 +41,69 @@ def load_survey_data():
                     found_columns[target_name] = name
                     break
         if 'Date' not in found_columns or 'Village' not in found_columns:
-            st.error(f"Survey data error: Required columns not found. Found: {df.columns.tolist()}")
-            return None
+            raise FileNotFoundError(f"Survey data error: Required columns not found. Found: {df.columns.tolist()}")
         
         rename_dict = {v: k for k, v in found_columns.items()}
         df.rename(columns=rename_dict, inplace=True)
         df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
         df['Village'] = df['Village'].str.upper()
-        # IMPORTANT: Drop rows where the date could not be parsed.
         df.dropna(subset=['Date'], inplace=True)
         return df
-    except FileNotFoundError:
-        st.error("Error: 'Raw_data.csv' not found. Please add it to your project folder.")
-        return None
+    except FileNotFoundError as e:
+        # Raise the exception to be caught by the session state loader
+        raise e
 
 def load_gps_data():
     """Loads the land use GPS data."""
     try:
         df_gps = pd.read_csv('gps_raw.csv')
         if 'type' not in df_gps.columns:
-            st.error("Error: The 'gps_raw.csv' file must contain a column named 'type'.")
-            return None
+            raise FileNotFoundError("Error: The 'gps_raw.csv' file must contain a column named 'type'.")
         df_gps['Land Use Type'] = df_gps['type'].str.replace('_', ' ').str.title()
         return df_gps
     except FileNotFoundError:
-        return None # Return None to show a warning in the tab instead of an error
+        return None
 
 def load_map_data():
     """Loads the farm polygon shapefile data from a zip archive."""
-    try:
-        gdf = gpd.read_file("zip://Polygons_Shapefile.zip")
-        if 'What_is_the_Unique_Farm_ID' not in gdf.columns:
-            st.error("Shapefile error: Must contain a column named 'What_is_the_Unique_Farm_ID'.")
-            return None
-        return gdf
-    except Exception as e:
-        # CHANGE: Display the actual technical error on the dashboard for easier debugging.
-        st.error(f"A technical error occurred while loading the shapefile: {e}")
-        return None
+    # This function will now raise an exception on failure, which will be caught below.
+    gdf = gpd.read_file("zip://Polygons_Shapefile.zip")
+    if 'What_is_the_Unique_Farm_ID' not in gdf.columns:
+        raise KeyError("Shapefile error: Must contain a column named 'What_is_the_Unique_Farm_ID'.")
+    return gdf
 
 
-# --- LOAD ALL DATA INTO SESSION STATE ---
+# --- LOAD ALL DATA INTO SESSION STATE WITH ROBUST ERROR HANDLING ---
 if 'survey_data' not in st.session_state:
-    st.session_state.survey_data = load_survey_data()
+    try:
+        st.session_state.survey_data = load_survey_data()
+        st.session_state.survey_error = None
+    except Exception as e:
+        st.session_state.survey_data = None
+        st.session_state.survey_error = e
+
 if 'gps_data' not in st.session_state:
     st.session_state.gps_data = load_gps_data()
+
 if 'map_data' not in st.session_state:
-    st.session_state.map_data = load_map_data()
+    try:
+        st.session_state.map_data = load_map_data()
+        st.session_state.map_error = None
+    except Exception as e:
+        st.session_state.map_data = None
+        st.session_state.map_error = e
 
 df_raw = st.session_state.survey_data
 df_gps = st.session_state.gps_data
 gdf_farms = st.session_state.map_data
 
 # --- ROBUSTNESS CHECK: Ensure survey data is valid before proceeding ---
+if st.session_state.survey_error:
+    st.error(f"CRITICAL ERROR LOADING SURVEY DATA: {st.session_state.survey_error}")
+    st.stop()
 if df_raw is None or df_raw.empty:
-    st.error("CRITICAL ERROR: Failed to load survey data, or the 'Raw_data.csv' file is empty/has no valid dates. Please check the file and try again.")
-    st.stop() # This stops the script from running further and causing a crash.
+    st.error("CRITICAL ERROR: 'Raw_data.csv' file is empty or has no valid dates. Please check the file.")
+    st.stop()
 
 
 # --- BRANDED HEADER ---
@@ -143,18 +150,13 @@ with tab1:
         max_value=max_date
     )
 
-    # --- ROBUSTNESS CHECK: Ensure date filter returns a valid range ---
     if not selected_dates or len(selected_dates) != 2:
-        # If the date range is not valid, use the full range as a fallback
         start_date, end_date = min_date, max_date
         st.sidebar.warning("Invalid date range selected. Showing data for all dates.")
     else:
         start_date, end_date = pd.to_datetime(selected_dates[0]), pd.to_datetime(selected_dates[1])
 
-    # --- FILTERING DATA ---
-    overall_progress_df = df_raw[
-        (df_raw['Date'] >= start_date) & (df_raw['Date'] <= end_date)
-    ]
+    overall_progress_df = df_raw[(df_raw['Date'] >= start_date) & (df_raw['Date'] <= end_date)]
     df_filtered = overall_progress_df.copy()
 
     if village_type == 'Certified Villages':
@@ -236,18 +238,16 @@ with tab2:
 # --- TAB 3: FARM POLYGONS MAP ---
 with tab3:
     st.header("Map of Farm Polygons")
-    if gdf_farms is not None:
-        # Create a base map centered on the data
+    # Check for a stored error first
+    if 'map_error' in st.session_state and st.session_state.map_error is not None:
+        st.error(f"A technical error occurred while loading the shapefile: {st.session_state.map_error}")
+    # If no error, check if the data is loaded
+    elif gdf_farms is not None:
         m = folium.Map(tiles=None, control_scale=True)
         folium.TileLayer(
             tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            attr='Esri',
-            name='Esri Satellite',
-            overlay=False,
-            control=True
+            attr='Esri', name='Esri Satellite', overlay=False, control=True
         ).add_to(m)
-
-        # Add polygons to the map
         geojson = folium.GeoJson(
             gdf_farms,
             tooltip=folium.features.GeoJsonTooltip(
@@ -256,18 +256,11 @@ with tab3:
                 sticky=True
             ),
             style_function=lambda feature: {
-                'fillColor': '#12b58b',
-                'color': 'black',
-                'weight': 2,
-                'fillOpacity': 0.5
+                'fillColor': '#12b58b', 'color': 'black', 'weight': 2, 'fillOpacity': 0.5
             }
         ).add_to(m)
-
-        # Fit the map to the bounds of the polygons
         m.fit_bounds(geojson.get_bounds())
-
-        # Display the map in Streamlit
         st_folium(m, use_container_width=True)
+    # If no error and no data, show the original warning
     else:
-        # This will now show a more generic warning unless a specific error is caught.
         st.warning("Could not load map data. Please check the 'Polygons_Shapefile.zip' file.")
