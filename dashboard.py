@@ -48,6 +48,7 @@ def load_survey_data():
         df.rename(columns=rename_dict, inplace=True)
         df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
         df['Village'] = df['Village'].str.upper()
+        # IMPORTANT: Drop rows where the date could not be parsed.
         df.dropna(subset=['Date'], inplace=True)
         return df
     except FileNotFoundError:
@@ -69,16 +70,14 @@ def load_gps_data():
 def load_map_data():
     """Loads the farm polygon shapefile data from a zip archive."""
     try:
-        # GeoPandas can read a shapefile directly from a zip archive
         gdf = gpd.read_file("zip://Polygons_Shapefile.zip")
-        # Ensure the Farm ID column exists
         if 'What_is_the_Unique_Farm_ID' not in gdf.columns:
             st.error("Shapefile error: Must contain a column named 'What_is_the_Unique_Farm_ID'.")
             return None
         return gdf
     except Exception as e:
-        # Catch broader exceptions because GeoPandas can have various read errors
-        print(f"Error loading shapefile: {e}")
+        # CHANGE: Display the actual technical error on the dashboard for easier debugging.
+        st.error(f"A technical error occurred while loading the shapefile: {e}")
         return None
 
 
@@ -94,8 +93,10 @@ df_raw = st.session_state.survey_data
 df_gps = st.session_state.gps_data
 gdf_farms = st.session_state.map_data
 
-if df_raw is None:
-    st.stop()
+# --- ROBUSTNESS CHECK: Ensure survey data is valid before proceeding ---
+if df_raw is None or df_raw.empty:
+    st.error("CRITICAL ERROR: Failed to load survey data, or the 'Raw_data.csv' file is empty/has no valid dates. Please check the file and try again.")
+    st.stop() # This stops the script from running further and causing a crash.
 
 
 # --- BRANDED HEADER ---
@@ -131,8 +132,10 @@ with tab1:
     )
     village_list = ['All'] + ALL_VILLAGES
     selected_village = st.sidebar.selectbox("Select Individual Village:", village_list)
+    
     min_date = df_raw['Date'].min()
     max_date = df_raw['Date'].max()
+    
     selected_dates = st.sidebar.date_input(
         "Select Date Range:",
         value=(min_date, max_date),
@@ -140,9 +143,18 @@ with tab1:
         max_value=max_date
     )
 
-    start_date = pd.to_datetime(selected_dates[0])
-    end_date = pd.to_datetime(selected_dates[1])
-    overall_progress_df = df_raw[(df_raw['Date'] >= start_date) & (df_raw['Date'] <= end_date)]
+    # --- ROBUSTNESS CHECK: Ensure date filter returns a valid range ---
+    if not selected_dates or len(selected_dates) != 2:
+        # If the date range is not valid, use the full range as a fallback
+        start_date, end_date = min_date, max_date
+        st.sidebar.warning("Invalid date range selected. Showing data for all dates.")
+    else:
+        start_date, end_date = pd.to_datetime(selected_dates[0]), pd.to_datetime(selected_dates[1])
+
+    # --- FILTERING DATA ---
+    overall_progress_df = df_raw[
+        (df_raw['Date'] >= start_date) & (df_raw['Date'] <= end_date)
+    ]
     df_filtered = overall_progress_df.copy()
 
     if village_type == 'Certified Villages':
@@ -226,7 +238,6 @@ with tab3:
     st.header("Map of Farm Polygons")
     if gdf_farms is not None:
         # Create a base map centered on the data
-        # Using a satellite tile layer
         m = folium.Map(tiles=None, control_scale=True)
         folium.TileLayer(
             tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -237,8 +248,6 @@ with tab3:
         ).add_to(m)
 
         # Add polygons to the map
-        # The GeoJson object can handle the GeoDataFrame directly
-        # We use a tooltip to show the Farm ID on hover
         geojson = folium.GeoJson(
             gdf_farms,
             tooltip=folium.features.GeoJsonTooltip(
@@ -260,4 +269,5 @@ with tab3:
         # Display the map in Streamlit
         st_folium(m, use_container_width=True)
     else:
-        st.warning("Warning: 'Polygons_Shapefile.zip' not found. Please add it to your project folder to see the map.")
+        # This will now show a more generic warning unless a specific error is caught.
+        st.warning("Could not load map data. Please check the 'Polygons_Shapefile.zip' file.")
