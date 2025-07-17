@@ -22,19 +22,15 @@ PROJECT_VILLAGES = [
 ALL_VILLAGES = sorted(CERTIFIED_VILLAGES + PROJECT_VILLAGES)
 
 
-# --- DATA LOADING (IMPROVED WITH ERROR HANDLING) ---
-@st.cache_data
-def load_data():
-    """
-    Loads raw survey data from a single CSV file.
-    This version is more robust and checks for common column name variations.
-    """
+# --- DATA LOADING USING SESSION STATE (Automatic Refresh) ---
+# This method ensures that when a user starts a new session (e.g., opens the link),
+# it always loads the latest version of the data file from GitHub.
+if 'data_loaded' not in st.session_state:
     try:
         # Use the corrected filename
         df_raw = pd.read_csv('Raw_data.csv')
 
         # --- Find required columns (Date and Village) ---
-        # Updated mapping with 'today' and 'village' as primary names
         column_map = {
             'Date': ['today', 'Date', 'date', 'Fecha'],
             'Village': ['village', 'Village', 'Aldea', 'Comunidad']
@@ -47,7 +43,6 @@ def load_data():
                     found_columns[target_name] = name
                     break
         
-        # Check if all required columns were found and show a helpful error if not
         if 'Date' not in found_columns or 'Village' not in found_columns:
             error_msg = "Error: Could not find required columns. "
             if 'Date' not in found_columns:
@@ -56,29 +51,26 @@ def load_data():
                 error_msg += "Please ensure you have a 'Village' or 'village' column. "
             error_msg += f"The columns found were: {df_raw.columns.tolist()}"
             st.error(error_msg)
-            return None
+            st.stop()
 
-        # Rename columns to a standard name for the rest of the script
         rename_dict = {v: k for k, v in found_columns.items()}
         df_raw.rename(columns=rename_dict, inplace=True)
 
         # --- Data Cleaning and Processing ---
         df_raw['Date'] = pd.to_datetime(df_raw['Date'], dayfirst=True, errors='coerce')
         df_raw['Village'] = df_raw['Village'].str.upper()
-        
         df_raw.dropna(subset=['Date'], inplace=True)
 
-        return df_raw
+        # Store the cleaned dataframe in the session state
+        st.session_state.df_raw = df_raw
+        st.session_state.data_loaded = True
+
     except FileNotFoundError:
-        # Updated error message with the correct filename
         st.error("Error: Make sure the file 'Raw_data.csv' is in the same folder as the script.")
-        return None
+        st.stop()
 
-# Load data when the app starts.
-df_raw = load_data()
-
-if df_raw is None:
-    st.stop()
+# Retrieve the dataframe from session state
+df_raw = st.session_state.df_raw
 
 
 # --- BRANDED HEADER ---
@@ -88,13 +80,10 @@ header_col1, header_col2 = st.columns(2)
 
 with header_col1:
     st.title("Thriving Landscapes San Martin")
-    # Use markdown with inline CSS to control font size
     st.markdown('<p style="font-size: 20px;">For: <strong>Rainforest Alliance</strong></p>', unsafe_allow_html=True)
 
 with header_col2:
-    # Use a container to group the logo and text
     with st.container():
-        # Use markdown with inline CSS to control font size
         st.markdown(
             f"""
             <div style='text-align: right; font-size: 20px;'>
@@ -132,12 +121,10 @@ selected_dates = st.sidebar.date_input(
 start_date = pd.to_datetime(selected_dates[0])
 end_date = pd.to_datetime(selected_dates[1])
 
-# Create a dataframe for overall progress (only filtered by date)
 overall_progress_df = df_raw[
     (df_raw['Date'] >= start_date) & (df_raw['Date'] <= end_date)
 ]
 
-# Create a second dataframe for detailed filtering
 df_filtered = overall_progress_df.copy()
 
 if village_type == 'Certified Villages':
