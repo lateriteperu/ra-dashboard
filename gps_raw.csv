@@ -1,9 +1,11 @@
 type
+deforested_area
 grassland
 forest
 grassland
 cropland
 grassland
+cropland
 cropland
 deforested_area
 grassland
@@ -11,9 +13,11 @@ forest
 other
 settlement
 grassland
+settlement
 forest
 grassland
 forest
+other
 other
 grassland
 grassland
@@ -21,4 +25,5 @@ grassland
 cropland
 forest
 other
+wetland
 cropland
