@@ -1,5 +1,9 @@
-We need to updathe the raw file in GitHub
+We need to update the raw file in GitHub
 
+Pre-requirements:
+
+pip install streamlit
+pip install streamlit-folium
 
 Credentials:
 Username lateriteperu
