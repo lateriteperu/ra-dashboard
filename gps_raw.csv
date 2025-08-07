@@ -4,7 +4,9 @@ wetland
 deforested_area
 forest
 cropland
+forest
 settlement
+bare_land
 wetland
 grassland
 deforested_area
@@ -72,6 +74,8 @@ settlement
 cropland
 cropland
 deforested_area
+forest
+bare_land
 grassland
 grassland
 cropland
@@ -130,6 +134,7 @@ bare_land
 other
 forest
 grassland
+grassland
 settlement
 other
 deforested_area
@@ -148,6 +153,7 @@ cropland
 forest
 cropland
 settlement
+settlement
 grassland
 deforested_area
 cropland
@@ -158,6 +164,7 @@ cropland
 deforested_area
 bare_land
 wetland
+bare_land
 grassland
 bare_land
 settlement
@@ -174,9 +181,11 @@ wetland
 forest
 grassland
 grassland
+grassland
 cropland
 forest
 deforested_area
+forest
 cropland
 forest
 settlement
@@ -210,6 +219,7 @@ wetland
 cropland
 grassland
 grassland
+grassland
 cropland
 settlement
 settlement
@@ -229,6 +239,7 @@ wetland
 settlement
 settlement
 cropland
+deforested_area
 forest
 grassland
 cropland
